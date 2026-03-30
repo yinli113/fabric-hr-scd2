@@ -13,3 +13,6 @@ To avoid circular relationship errors in Power BI, we split the dimensions. We c
 
 **4. Why Microsoft Fabric?**
 Fabric made this seamless. Traditionally, this requires stitching together Azure Data Factory, Databricks, and a dedicated SQL Server. In Fabric, we uploaded a file to OneLake, wrote PySpark in a notebook, and immediately flipped a switch to the "SQL Analytics Endpoint." The Delta tables we created in Spark were instantly available for semantic modeling and direct DAX querying in the Power BI web editor—zero data movement required.
+
+**5. Fabric-Native CI/CD**
+We utilized a multi-workspace strategy (Dev and Prod). Using Fabric Deployment Pipelines, we instituted a safe, 1-click promotion process from Dev to Prod. Finally, we linked our notebooks in a Data Factory Pipeline with a Storage Event Trigger, achieving a fully automated, event-driven CI/CD workflow without needing external orchestration tools.
