@@ -1,85 +1,51 @@
-# TL;DR
-This project generates realistic 3-month daily employee status changes and models them into an SCD2 employee dimension for Microsoft Fabric-style data engineering practice.
+# Global Workforce & Org Dynamics (Fabric HR SCD2 Lab)
 
-# Employee SCD2 Fabric Lab
+![Org Explorer Dashboard](images/employee_org_explorer.png)
 
-## What this project does
-- Generates synthetic employee HR data with realistic daily changes.
-- Produces a single “wide” raw extract file (real-world capture) plus daily snapshots and event logs for practice.
-- Builds `dim_employee_scd2` from snapshots.
-- Builds `dim_employee_static` from base employee attributes.
-- Validates core SCD2 integrity rules.
+## Overview
+This project generates realistic daily employee status changes and models them into an Enterprise-grade Slowly Changing Dimension Type 2 (SCD2) for Microsoft Fabric. It demonstrates an end-to-end modern Data Engineering and Business Intelligence workflow, from raw CSV ingestion to dynamic, time-traveling Power BI dashboards.
 
-## Project structure
-- `src/data_gen/generate_employee_data.py`: generates base employees, daily snapshots, and events.
-- `src/data_gen/split_raw_extract_history_today.py`: splits wide raw extract into **history** (all days before latest) + **today** (latest `snapshot_date` only) for ADLS backfill + incremental demos.
-- `src/scd2/build_scd2.py`: builds SCD2 dimension from daily snapshots.
-- `src/scd2/build_static_dim.py`: builds static employee dimension.
-- `data/raw/employee_hr_raw_extract.csv`: single wide raw extract file (Bronze-like capture) with PII + daily HR fields.
-- `tests/test_scd2_integrity.py`: checks overlap, continuity, and current-row constraints.
-- `.cursor/skills/employee-scd2-lab/SKILL.md`: reusable Agent Skill for this workflow.
-- `src/fabric/nb_01_bronze.py`: Notebook 01 Bronze stage.
-- `src/fabric/nb_02_silver.py`: Notebook 02 Silver stage.
-- `src/fabric/nb_03_gold.py`: Notebook 03 Gold stage.
-- `src/fabric/nb_04_tests.py`: Notebook 04 validation checks.
+## Project Architecture
 
-## Quick start
-1. Generate data
-   - `python3 src/data_gen/generate_employee_data.py`
-2. (Optional) Split raw extract for history ingest vs one-day incremental
-   - `python3 src/data_gen/split_raw_extract_history_today.py`
-3. Build SCD2 dimension
-   - `python3 src/scd2/build_scd2.py`
-4. Build static dimension
-   - `python3 src/scd2/build_static_dim.py`
-5. Run validations
-   - `python3 tests/test_scd2_integrity.py`
+![Employee Pipeline](images/employee_pipeline.png)
 
-## Output files
-- `data/raw/employee_hr_raw_extract.csv` (single wide raw extract capture)
-- `data/raw/employee_hr_raw_extract_history.csv` / `data/adls_gen2/raw/employee_hr_raw_extract_history.csv` (all days **before** latest `snapshot_date`)
-- `data/raw/employee_hr_raw_extract_today.csv` / `data/adls_gen2/raw/employee_hr_raw_extract_today.csv` (rows for **latest** `snapshot_date` only — incremental “today” slice)
-- `data/adls_gen2/raw/employee_hr_raw_extract.csv` (ADLS Gen2 landing simulation; full extract if you did not split)
-- `data/raw/employees_base.csv` (lab convenience; Silver normalization input)
-- `data/raw/employee_daily_snapshot.csv` (lab convenience; Silver normalization input)
-- `data/raw/employee_change_events.csv` (lab convenience; Silver normalization input)
-- `data/processed/dim_employee_scd2.csv`
-- `data/processed/dim_employee_static.csv`
+### The Medallion Data Model
+The project strictly follows the Databricks/Fabric Medallion Architecture:
+- **Bronze (Ingestion):** Lands raw, daily HR CSV extracts via OneLake shortcuts or direct upload. Records metadata like ingestion timestamps.
+- **Silver (Conformed & Cleansed):** Deduplicates records, computes MD5/SHA-256 hashes to detect row-level changes, and applies deterministic tokenization/masking to sensitive PII (Emails, Tax IDs).
+- **Gold (Curated & Modeled):** Transforms daily snapshots into a robust Star Schema. Features a `gold_dim_employee_scd2` dimension tracking precise `effective_start_date` and `effective_end_date` bounds, allowing accurate historical reporting without overlapping timelines.
 
-## Fabric notebook runbook (end-to-end)
-After you load `employee_hr_raw_extract_history.csv` into a Lakehouse `Files` path (or ADLS shortcut), run these scripts in a Fabric notebook:
+### The CI/CD & Deployment Strategy
 
-1. Bronze notebook
-   - `from src.fabric.nb_01_bronze import run_nb_01`
-   - `run_nb_01(spark, source_path="Files/shortcut_connection_employee/employee_hr_raw_extract_history.csv", mode="copy", source_format="csv")`
-2. Silver notebook
-   - `from src.fabric.nb_02_silver import run_nb_02`
-   - `run_nb_02(spark)`
-3. Gold notebook
-   - `from src.fabric.nb_03_gold import run_nb_03`
-   - `run_nb_03(spark)`
-4. Tests notebook
-   - `from src.fabric.nb_04_tests import run_nb_04`
-   - `run_nb_04(spark)`
+![Workspace Architecture](images/workspace_architecture.png)
 
-Debug-friendly note:
-- Default notebook settings now target a CSV file under `Files/shortcut_connection_employee/...` and use copy mode.
-- If your shortcut points to Delta data (contains `_delta_log`), use `run_nb_01(..., mode="register", source_format="delta")`.
+We utilize a native Fabric ALM (Application Lifecycle Management) approach:
+- **Dev & Prod Isolation:** Dedicated `Employee_Dev_WS` and `Employee_Prod_WS` workspaces.
+- **Deployment Pipelines:** 1-click promotion of Notebooks, Lakehouses, and Reports from Dev to Prod.
+- **Automated Orchestration:** Fabric Data Factory pipelines triggered by ADLS Gen2 Blob Storage events run the PySpark notebooks (`Bronze ➡️ Silver ➡️ Gold ➡️ Tests`) automatically upon new data arrival.
 
-Recommended test notebook pattern:
-- Keep transform notebooks focused on data building (`bronze`, `silver`, `gold`).
-- Run data-quality/unit checks in a separate notebook (for example `nb_04_tests`) that calls `validate_gold_tables`.
-- In Fabric pipelines, execute tests as a separate final step so failures are obvious and do not mix with transform logs.
+## AI-Driven Development Approach
 
-Or run all stages in one call:
-- `from src.fabric.run_pipeline import run_end_to_end`
-- `run_end_to_end(spark, "Files/rawdev")`
+This entire project was architected and built using advanced **AI Agents** (Cursor/Codex). Here is how the AI ecosystem powered the development:
 
-Default table outputs:
-- Silver: `silver_employee_daily_snapshot`, `silver_employees_base`, `silver_employee_change_events`
-- Gold: `gold_dim_employee_static`, `gold_dim_employee_scd2`, `gold_fact_employee_daily_snapshot`, `gold_fact_reporting_line_daily`, `gold_fact_employee_change_event`
+1. **Agent Skills:** We utilized predefined `.cursor/skills` (e.g., `fabric-etl-silver-gold`, `medallion-architecture-fabric`, `deterministic-pii-masking`) to give the AI instant domain expertise. Instead of prompting the AI with basic Python instructions, the AI read these skill files to understand enterprise Fabric design patterns before writing a single line of code.
+2. **Custom Rules:** Workspace rules controlled the AI's editing behavior, forcing it to follow a specific directory structure (`src/fabric/`, `tests/`) and prioritize in-place file editing over creating duplicate scripts.
+3. **Subagents & Tool Calling:** The AI autonomously executed terminal commands, performed Python debugging, explored the local file system to auto-discover CSV schemas, and formatted Markdown documentation.
+4. **Iterative Problem Solving:** When Fabric-specific errors occurred (e.g., `[SCHEMA_NOT_FOUND]` or `HTTP 430 Compute Limits`), the AI diagnosed the cloud infrastructure issues and provided immediate UI troubleshooting steps alongside the PySpark code fixes.
 
-SCD2 tracked attributes now include operational fields that can change over time:
-- `org_unit`, `role_family`, `location`
-- `phone_number`
-- `home_address_line1`, `home_address_city`, `home_address_state`, `home_address_postal_code`
+## Project Structure
+- `src/data_gen/`: Scripts to generate synthetic HR data and daily snapshots.
+- `src/fabric/`: The core Medallion PySpark notebooks (`nb_01_bronze.py` through `nb_04_tests.py`).
+- `src/scd2/` & `src/security/`: Core transformation and PII masking logic.
+- `docs/` & `*.md`: Extensive documentation on SCD2 logic, Power BI DAX, and CI/CD.
+- `images/`: Architecture diagrams and dashboard screenshots.
+
+## Quick Start
+1. **Generate Data:** 
+   `python3 src/data_gen/generate_employee_data.py`
+2. **Fabric Ingestion:** Upload the generated `employee_hr_raw_extract_history.csv` to your Fabric Lakehouse.
+3. **Run Pipeline:** Execute notebooks 01 through 04 in your Fabric workspace to build the Gold Star Schema.
+4. **Power BI:** Connect a new report to the SQL Analytics Endpoint, wire the Snowflake schema, and build the dynamic org chart using the DAX measures provided in `POWERBI_DASHBOARD.md`.
+
+---
+*For a deep dive into the SCD2 logic, see [SCD2_README.md](SCD2_README.md). For dashboard DAX, see [POWERBI_DASHBOARD.md](POWERBI_DASHBOARD.md).*
